@@ -10,8 +10,8 @@ from app.config import GOOGLE_API_KEY, GENERATED_IMAGES_DIR, MAX_RETRIES, RETRY_
 
 logger = logging.getLogger("instagram_bot.image_generator")
 
-# Free-tier compatible model (no billing required)
-IMAGEN_MODEL = "gemini-2.0-flash-preview-image-generation"
+# Free-tier model for image generation (no billing required)
+IMAGEN_MODEL = "gemini-2.0-flash-exp"
 
 
 class ImageGenerator:
@@ -29,7 +29,7 @@ class ImageGenerator:
         reraise=True,
     )
     def generate(self, image_prompt: str, style: str, mood: str, day: int) -> Path:
-        """Generate an image via Gemini Flash and save it locally."""
+        """Generate an image via Gemini 2.0 Flash and save it locally."""
         full_prompt = self._build_prompt(image_prompt, style, mood)
         logger.info("Generating image for Day %d | style='%s' mood='%s'", day, style, mood)
 
@@ -37,11 +37,11 @@ class ImageGenerator:
             model=IMAGEN_MODEL,
             contents=full_prompt,
             config=types.GenerateContentConfig(
-                response_modalities=["IMAGE", "TEXT"],
+                response_modalities=["Text", "Image"],
             ),
         )
 
-        # Extract image bytes from response parts
+        # Find the image part in the response
         image_bytes = None
         for part in response.candidates[0].content.parts:
             if part.inline_data is not None:
@@ -51,7 +51,7 @@ class ImageGenerator:
         if not image_bytes:
             raise RuntimeError("Gemini returned no image data in response.")
 
-        # inline_data.data may already be bytes or base64 string
+        # inline_data.data may be raw bytes or base64-encoded string
         if isinstance(image_bytes, str):
             image_bytes = base64.b64decode(image_bytes)
 
@@ -65,10 +65,10 @@ class ImageGenerator:
     @staticmethod
     def _build_prompt(image_prompt: str, style: str, mood: str) -> str:
         return (
-            f"Generate a vertical 9:16 portrait image. "
+            f"Generate a tall vertical portrait-format image (taller than wide). "
             f"{image_prompt}. "
             f"Art style: {style}. "
             f"Mood and atmosphere: {mood}. "
             "Cinematic composition, ultra-detailed, vibrant colors, "
-            "suitable for Instagram Story format."
+            "suitable for an Instagram Story."
         )
