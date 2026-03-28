@@ -1,5 +1,7 @@
+import base64
 import logging
 from pathlib import Path
+
 from google import genai
 from google.genai import types
 from tenacity import retry, stop_after_attempt, wait_fixed, before_log, after_log
@@ -8,8 +10,8 @@ from app.config import GOOGLE_API_KEY, GENERATED_IMAGES_DIR, MAX_RETRIES, RETRY_
 
 logger = logging.getLogger("instagram_bot.image_generator")
 
-# Use the dedicated Imagen model for image generation
-IMAGEN_MODEL = "imagen-3.0-generate-001"
+# Using the Imagen 4 Generate model from your dashboard
+IMAGEN_MODEL = "imagen-4.0-generate-001"
 
 class ImageGenerator:
     def __init__(self) -> None:
@@ -26,25 +28,24 @@ class ImageGenerator:
         reraise=True,
     )
     def generate(self, image_prompt: str, style: str, mood: str, day: int) -> Path:
-        """Generate an image via Google Imagen 3 and save it locally."""
+        """Generate an image via Google Imagen 4 and save it locally."""
         full_prompt = self._build_prompt(image_prompt, style, mood)
         logger.info("Generating image for Day %d | style='%s' mood='%s'", day, style, mood)
 
-        # 1. Use generate_images (NOT generate_content)
+        # 1. Call generate_images with Imagen 4
         response = self._client.models.generate_images(
             model=IMAGEN_MODEL,
             prompt=full_prompt,
             config=types.GenerateImagesConfig(
                 number_of_images=1,
                 output_mime_type="image/png",
-                aspect_ratio="3:4", # Perfect for vertical Instagram posts/stories
+                aspect_ratio="3:4", # Vertical format for Instagram
             ),
         )
 
-        # 2. Extract the image bytes from the generated_images list
+        # 2. Extract the image bytes securely
         image_bytes = None
         if response.generated_images and len(response.generated_images) > 0:
-            # The SDK handles the raw bytes for us here
             image_bytes = response.generated_images[0].image.image_bytes
 
         if not image_bytes:
