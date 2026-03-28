@@ -7,7 +7,7 @@ from app.config import GOOGLE_API_KEY, MAX_RETRIES, RETRY_WAIT_SECONDS
 
 logger = logging.getLogger("instagram_bot.caption_generator")
 
-GEMINI_TEXT_MODEL = "gemini-1.5-flash"
+GEMINI_TEXT_MODEL = "gemini-2.5-flash"
 
 
 class CaptionGenerator:
