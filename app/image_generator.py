@@ -1,3 +1,4 @@
+import base64
 import logging
 from pathlib import Path
 
@@ -9,7 +10,8 @@ from app.config import GOOGLE_API_KEY, GENERATED_IMAGES_DIR, MAX_RETRIES, RETRY_
 
 logger = logging.getLogger("instagram_bot.image_generator")
 
-IMAGEN_MODEL = "imagen-3.0-generate-002"
+# Free-tier compatible model (no billing required)
+IMAGEN_MODEL = "gemini-2.0-flash-preview-image-generation"
 
 
 class ImageGenerator:
@@ -27,25 +29,32 @@ class ImageGenerator:
         reraise=True,
     )
     def generate(self, image_prompt: str, style: str, mood: str, day: int) -> Path:
-        """Generate an image via Gemini Imagen 3 and save it locally."""
+        """Generate an image via Gemini Flash and save it locally."""
         full_prompt = self._build_prompt(image_prompt, style, mood)
         logger.info("Generating image for Day %d | style='%s' mood='%s'", day, style, mood)
 
-        response = self._client.models.generate_images(
+        response = self._client.models.generate_content(
             model=IMAGEN_MODEL,
-            prompt=full_prompt,
-            config=types.GenerateImagesConfig(
-                number_of_images=1,
-                aspect_ratio="9:16",
-                safety_filter_level="BLOCK_SOME",
-                person_generation="ALLOW_ADULT",
+            contents=full_prompt,
+            config=types.GenerateContentConfig(
+                response_modalities=["IMAGE", "TEXT"],
             ),
         )
 
-        if not response.generated_images:
-            raise RuntimeError("Gemini Imagen returned no images.")
+        # Extract image bytes from response parts
+        image_bytes = None
+        for part in response.candidates[0].content.parts:
+            if part.inline_data is not None:
+                image_bytes = part.inline_data.data
+                break
 
-        image_bytes: bytes = response.generated_images[0].image.image_bytes
+        if not image_bytes:
+            raise RuntimeError("Gemini returned no image data in response.")
+
+        # inline_data.data may already be bytes or base64 string
+        if isinstance(image_bytes, str):
+            image_bytes = base64.b64decode(image_bytes)
+
         file_path = GENERATED_IMAGES_DIR / f"day_{day:03d}.png"
         file_path.write_bytes(image_bytes)
 
@@ -56,9 +65,10 @@ class ImageGenerator:
     @staticmethod
     def _build_prompt(image_prompt: str, style: str, mood: str) -> str:
         return (
+            f"Generate a vertical 9:16 portrait image. "
             f"{image_prompt}. "
             f"Art style: {style}. "
             f"Mood and atmosphere: {mood}. "
             "Cinematic composition, ultra-detailed, vibrant colors, "
-            "suitable for Instagram Story (9:16 vertical format)."
+            "suitable for Instagram Story format."
         )
