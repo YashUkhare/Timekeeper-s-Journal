@@ -1,23 +1,21 @@
-import base64
 import logging
 from pathlib import Path
 
-from google import genai
-from google.genai import types
+import requests
 from tenacity import retry, stop_after_attempt, wait_fixed, before_log, after_log
 
-from app.config import GOOGLE_API_KEY, GENERATED_IMAGES_DIR, MAX_RETRIES, RETRY_WAIT_SECONDS
+from app.config import HUGGINGFACE_API_KEY, GENERATED_IMAGES_DIR, MAX_RETRIES, RETRY_WAIT_SECONDS
 
 logger = logging.getLogger("instagram_bot.image_generator")
 
-# Using the Imagen 4 Generate model from your dashboard
-IMAGEN_MODEL = "imagen-4.0-generate-001"
+HF_API_URL = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0"
+
 
 class ImageGenerator:
     def __init__(self) -> None:
-        if not GOOGLE_API_KEY:
-            raise EnvironmentError("GOOGLE_API_KEY is not set.")
-        self._client = genai.Client(api_key=GOOGLE_API_KEY)
+        if not HUGGINGFACE_API_KEY:
+            raise EnvironmentError("HUGGINGFACE_API_KEY is not set.")
+        self._headers = {"Authorization": f"Bearer {HUGGINGFACE_API_KEY}"}
 
     # ──────────────────────────────────────────────────────────────────────────
     @retry(
@@ -28,34 +26,36 @@ class ImageGenerator:
         reraise=True,
     )
     def generate(self, image_prompt: str, style: str, mood: str, day: int) -> Path:
-        """Generate an image via Google Imagen 4 and save it locally."""
+        """Generate an image via Hugging Face SDXL and save it locally."""
         full_prompt = self._build_prompt(image_prompt, style, mood)
         logger.info("Generating image for Day %d | style='%s' mood='%s'", day, style, mood)
 
-        # 1. Call generate_images with Imagen 4
-        response = self._client.models.generate_images(
-            model=IMAGEN_MODEL,
-            prompt=full_prompt,
-            config=types.GenerateImagesConfig(
-                number_of_images=1,
-                output_mime_type="image/png",
-                aspect_ratio="3:4", # Vertical format for Instagram
-            ),
+        response = requests.post(
+            HF_API_URL,
+            headers=self._headers,
+            json={"inputs": full_prompt},
+            timeout=120,
         )
 
-        # 2. Extract the image bytes securely
-        image_bytes = None
-        if response.generated_images and len(response.generated_images) > 0:
-            image_bytes = response.generated_images[0].image.image_bytes
+        # 503 = model is loading/warming up — tenacity will retry automatically
+        if response.status_code == 503:
+            estimated = response.json().get("estimated_time", RETRY_WAIT_SECONDS)
+            logger.warning(
+                "Model is warming up (503). Estimated wait: %ss. Retrying...", estimated
+            )
+            raise RuntimeError(f"Model warming up, estimated time: {estimated}s")
 
+        if response.status_code != 200:
+            raise RuntimeError(
+                f"Hugging Face API error {response.status_code}: {response.text[:300]}"
+            )
+
+        image_bytes = response.content
         if not image_bytes:
-            raise RuntimeError("Imagen returned no image data in the response.")
+            raise RuntimeError("Hugging Face returned empty image bytes.")
 
-        # 3. Save the file
+        GENERATED_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
         file_path = GENERATED_IMAGES_DIR / f"day_{day:03d}.png"
-        
-        # Ensure the directory exists
-        file_path.parent.mkdir(parents=True, exist_ok=True) 
         file_path.write_bytes(image_bytes)
 
         logger.info("Image saved → %s", file_path)
@@ -65,9 +65,10 @@ class ImageGenerator:
     @staticmethod
     def _build_prompt(image_prompt: str, style: str, mood: str) -> str:
         return (
-            f"Generate a tall vertical portrait-format image. "
+            "Tall vertical portrait format, 9:16 aspect ratio, more height than width. "
             f"{image_prompt}. "
             f"Art style: {style}. "
             f"Mood and atmosphere: {mood}. "
-            "Cinematic composition, ultra-detailed, vibrant colors."
+            "Cinematic composition, ultra-detailed, vibrant colors, "
+            "suitable for Instagram Story."
         )

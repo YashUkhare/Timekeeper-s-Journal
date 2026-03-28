@@ -15,7 +15,10 @@ LOGS_DIR = BASE_DIR / "logs"
 GENERATED_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
-# ── Google Gemini ──────────────────────────────────────────────────────────────
+# ── Hugging Face (Image Generation) ───────────────────────────────────────────
+HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY")
+
+# ── Google Gemini (Caption Generation) ────────────────────────────────────────
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 # ── Instagram ──────────────────────────────────────────────────────────────────
@@ -34,8 +37,8 @@ SCHEDULER_HOUR = 0
 SCHEDULER_MINUTE = 5
 
 # ── Retry ─────────────────────────────────────────────────────────────────────
-MAX_RETRIES = 3
-RETRY_WAIT_SECONDS = 10
+MAX_RETRIES = 5          # Increased: HF free models need more retries to warm up
+RETRY_WAIT_SECONDS = 20  # Increased: HF warm-up can take ~20-30s
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
@@ -44,6 +47,7 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 def validate_config() -> list[str]:
     """Return a list of missing required environment variables."""
     required = {
+        "HUGGINGFACE_API_KEY": HUGGINGFACE_API_KEY,
         "GOOGLE_API_KEY": GOOGLE_API_KEY,
         "INSTAGRAM_ACCESS_TOKEN": INSTAGRAM_ACCESS_TOKEN,
         "INSTAGRAM_BUSINESS_ACCOUNT_ID": INSTAGRAM_BUSINESS_ACCOUNT_ID,
