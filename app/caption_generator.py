@@ -1,6 +1,6 @@
 import logging
 
-import google.generativeai as genai
+from google import genai
 from tenacity import retry, stop_after_attempt, wait_fixed, before_log, after_log
 
 from app.config import GOOGLE_API_KEY, MAX_RETRIES, RETRY_WAIT_SECONDS
@@ -14,8 +14,7 @@ class CaptionGenerator:
     def __init__(self) -> None:
         if not GOOGLE_API_KEY:
             raise EnvironmentError("GOOGLE_API_KEY is not set.")
-        genai.configure(api_key=GOOGLE_API_KEY)
-        self._model = genai.GenerativeModel(GEMINI_TEXT_MODEL)
+        self._client = genai.Client(api_key=GOOGLE_API_KEY)
 
     # ──────────────────────────────────────────────────────────────────────────
     @retry(
@@ -33,14 +32,14 @@ class CaptionGenerator:
         day: int,
         title: str,
     ) -> str:
-        """
-        Generate an Instagram caption via Gemini text model.
-        Returns the formatted caption string.
-        """
+        """Generate an Instagram caption via Gemini text model."""
         prompt = self._build_prompt(caption_context, next_day_teaser, hashtags, day, title)
         logger.info("Generating caption for Day %d – '%s'", day, title)
 
-        response = self._model.generate_content(prompt)
+        response = self._client.models.generate_content(
+            model=GEMINI_TEXT_MODEL,
+            contents=prompt,
+        )
         caption = response.text.strip()
 
         logger.info("Caption generated (%d chars).", len(caption))
