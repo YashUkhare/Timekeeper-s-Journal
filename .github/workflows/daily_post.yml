@@ -7,27 +7,28 @@ on:
   workflow_dispatch:
     # Allows you to trigger manually from GitHub Actions tab (great for testing)
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   post:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.2.2
 
       - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v5.4.0
         with:
           python-version: '3.11'
           cache: 'pip'
 
       - name: Install dependencies
         run: pip install -r requirements.txt
-
-      - name: Download latest story.xlsx from repo
-        # story.xlsx is committed to the repo and updated after each post
-        run: echo "Using story.xlsx from repo"
 
       - name: Run Instagram Bot
         env:
