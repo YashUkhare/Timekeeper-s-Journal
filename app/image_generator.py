@@ -8,7 +8,7 @@ from app.config import HUGGINGFACE_API_KEY, GENERATED_IMAGES_DIR, MAX_RETRIES, R
 
 logger = logging.getLogger("instagram_bot.image_generator")
 
-HF_API_URL = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0"
+HF_API_URL = "https://router.huggingface.co/hf-inference/models/stabilityai/..."
 
 
 class ImageGenerator:
