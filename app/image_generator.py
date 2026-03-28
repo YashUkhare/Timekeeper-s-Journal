@@ -11,8 +11,8 @@ from app.config import GOOGLE_API_KEY, GENERATED_IMAGES_DIR, MAX_RETRIES, RETRY_
 logger = logging.getLogger("instagram_bot.image_generator")
 
 # Free-tier model for image generation (no billing required)
-IMAGEN_MODEL = "gemini-2.0-flash-exp"
-
+# Updated to the stable model 
+IMAGEN_MODEL = "gemini-2.5-flash" # You can also use "gemini-2.0-flash"
 
 class ImageGenerator:
     def __init__(self) -> None:
@@ -29,33 +29,40 @@ class ImageGenerator:
         reraise=True,
     )
     def generate(self, image_prompt: str, style: str, mood: str, day: int) -> Path:
-        """Generate an image via Gemini 2.0 Flash and save it locally."""
+        """Generate an image via Gemini Flash and save it locally."""
         full_prompt = self._build_prompt(image_prompt, style, mood)
         logger.info("Generating image for Day %d | style='%s' mood='%s'", day, style, mood)
 
+        # 1. Request the generation
         response = self._client.models.generate_content(
             model=IMAGEN_MODEL,
             contents=full_prompt,
             config=types.GenerateContentConfig(
-                response_modalities=["Text", "Image"],
+                # Use uppercase "IMAGE" to explicitly request image output
+                response_modalities=["IMAGE"], 
             ),
         )
 
-        # Find the image part in the response
+        # 2. Extract the image bytes
         image_bytes = None
-        for part in response.candidates[0].content.parts:
-            if part.inline_data is not None:
-                image_bytes = part.inline_data.data
-                break
+        if response.candidates and response.candidates[0].content.parts:
+            for part in response.candidates[0].content.parts:
+                if part.inline_data:
+                    image_bytes = part.inline_data.data
+                    break
 
         if not image_bytes:
-            raise RuntimeError("Gemini returned no image data in response.")
+            raise RuntimeError("Gemini returned no image data in the response.")
 
-        # inline_data.data may be raw bytes or base64-encoded string
+        # 3. Decode if necessary (the SDK usually returns raw bytes, but it's safe to check)
         if isinstance(image_bytes, str):
             image_bytes = base64.b64decode(image_bytes)
 
+        # 4. Save the file
         file_path = GENERATED_IMAGES_DIR / f"day_{day:03d}.png"
+        
+        # Ensure the directory exists before writing
+        file_path.parent.mkdir(parents=True, exist_ok=True) 
         file_path.write_bytes(image_bytes)
 
         logger.info("Image saved → %s", file_path)
