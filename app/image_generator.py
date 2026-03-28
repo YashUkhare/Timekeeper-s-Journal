@@ -15,7 +15,7 @@ class ImageGenerator:
     def __init__(self) -> None:
         if not HUGGINGFACE_API_KEY:
             raise EnvironmentError("HUGGINGFACE_API_KEY is not set.")
-        self._client = InferenceClient(token=HUGGINGFACE_API_KEY)
+        self._client = InferenceClient(token=HUGGINGFACE_API_KEY, provider="hf-inference")
 
     # ──────────────────────────────────────────────────────────────────────────
     @retry(
