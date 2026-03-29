@@ -67,6 +67,7 @@ Rules:
 - Use emojis sparingly but effectively (2-4 max)
 - Add a line break before the teaser
 - Add a line break before the hashtags
+- Dont use heavy words, keep the english simple to understand.
 - Do NOT use markdown formatting like ** or ##
 
 Format the output EXACTLY like this:
