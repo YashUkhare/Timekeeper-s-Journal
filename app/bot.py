@@ -7,12 +7,13 @@ from app.image_generator import ImageGenerator
 from app.caption_generator import CaptionGenerator
 from app.image_uploader import ImageUploader
 from app.instagram_poster import InstagramPoster
+from app import pending_store
 
 logger = logging.getLogger("instagram_bot.bot")
 
 
 class InstagramBot:
-    """Orchestrates the daily posting pipeline."""
+    """Orchestrates the full daily posting pipeline."""
 
     def __init__(self) -> None:
         self._excel = ExcelReader(EXCEL_FILE_PATH)
@@ -26,16 +27,13 @@ class InstagramBot:
         logger.info("=" * 60)
         logger.info("Instagram Bot pipeline started.")
 
-        # 1. Read today's story row
         story = self._excel.get_today_story()
         if story is None:
             logger.warning("No pending stories found. Nothing to post today.")
             return
 
-        image_path: Path | None = None
-
         try:
-            # 2. Generate image
+            # 1. Generate image
             image_path = self._image_gen.generate(
                 image_prompt=story.image_prompt,
                 style=story.style,
@@ -44,7 +42,7 @@ class InstagramBot:
             )
             logger.info("✅ Image generated: %s", image_path)
 
-            # 3. Generate caption
+            # 2. Generate caption
             caption = self._caption_gen.generate(
                 caption_context=story.caption_context,
                 next_day_teaser=story.next_day_teaser,
@@ -54,17 +52,12 @@ class InstagramBot:
             )
             logger.info("✅ Caption generated.")
 
-            # 4. Upload image to Cloudinary (get public URL)
+            # 3. Upload image to Cloudinary
             public_url = self._uploader.upload(image_path, story.day)
             logger.info("✅ Image uploaded: %s", public_url)
 
-            # 5. Post to Instagram
-            media_id = self._poster.post(image_url=public_url, caption=caption)
-            logger.info("✅ Posted to Instagram. Media ID: %s", media_id)
-
-            # 6. Mark Excel row as posted
-            self._excel.mark_posted(story.index)
-            logger.info("✅ Excel updated → Posted (Day %d).", story.day)
+            # 4. Post to Instagram
+            self._publish(public_url, caption, story.index, story.day)
 
         except Exception as exc:
             logger.error("❌ Pipeline failed for Day %d: %s", story.day, exc, exc_info=True)
@@ -73,3 +66,45 @@ class InstagramBot:
 
         finally:
             logger.info("=" * 60)
+
+    # ──────────────────────────────────────────────────────────────────────────
+    def retry_publish(self) -> None:
+        """Read pending_publish.json and attempt Instagram publish only."""
+        logger.info("=" * 60)
+        logger.info("Retry-publish pipeline started.")
+
+        pending = pending_store.load()
+        if not pending:
+            logger.info("No pending publish found. Nothing to do.")
+            return
+
+        try:
+            self._publish(
+                image_url=pending["image_url"],
+                caption=pending["caption"],
+                row_index=pending["row_index"],
+                day=pending["day"],
+            )
+        except Exception as exc:
+            logger.error("❌ Retry publish failed for Day %s: %s", pending.get("day"), exc, exc_info=True)
+            raise
+
+        finally:
+            logger.info("=" * 60)
+
+    # ──────────────────────────────────────────────────────────────────────────
+    def _publish(self, image_url: str, caption: str, row_index: int, day: int) -> None:
+        """Post to Instagram, update Excel, and clear any pending file."""
+        try:
+            media_id = self._poster.post(image_url=image_url, caption=caption)
+            logger.info("✅ Posted to Instagram. Media ID: %s", media_id)
+        except Exception:
+            # Save for retry workflow before re-raising
+            pending_store.save(image_url, caption, row_index, day)
+            logger.warning("⚠️  Instagram post failed. Saved to pending_publish.json for retry.")
+            raise
+
+        # Success — update Excel and clear pending file
+        self._excel.mark_posted(row_index)
+        pending_store.clear()
+        logger.info("✅ Excel updated → Posted (Day %d).", day)

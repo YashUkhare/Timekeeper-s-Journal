@@ -1,17 +1,16 @@
-name: Daily Instagram Post
+name: Retry Instagram Publish
 
 on:
-  schedule:
-    - cron: '35 18 * * *'   # 18:35 UTC = 12:05 AM IST
   workflow_dispatch:
+    # Manual trigger only — run this from Actions tab whenever a post failed
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  post:
+  retry:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     permissions:
       contents: write
 
@@ -31,18 +30,25 @@ jobs:
       - name: Create .env file from secret
         run: echo "${{ secrets.ENV }}" > .env
 
-      - name: Run Instagram Bot
-        run: python main.py --now
+      - name: Check pending_publish.json exists
+        run: |
+          if [ ! -f pending_publish.json ]; then
+            echo "⚠️  No pending_publish.json found. Nothing to retry."
+            exit 0
+          fi
+          echo "✅ Found pending_publish.json:"
+          cat pending_publish.json
 
-      - name: Commit updated files back to repo
-        if: always()   # Run even if bot failed — so pending_publish.json gets committed
+      - name: Retry Instagram publish only
+        run: python main.py --retry
+
+      - name: Commit updated files (story.xlsx + remove pending_publish.json)
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add data/story.xlsx
-          # Commit pending_publish.json if Instagram posting failed
-          git add pending_publish.json 2>/dev/null || true
-          git diff --staged --quiet || git commit -m "chore: daily post update [skip ci]"
+          git rm --cached pending_publish.json 2>/dev/null || true
+          git diff --staged --quiet || git commit -m "chore: retry publish succeeded [skip ci]"
           git push
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
