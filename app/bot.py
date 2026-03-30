@@ -59,6 +59,8 @@ class InstagramBot:
                 caption=caption,
                 day=story.day,
                 title=story.title,
+                style=story.style,
+                mood=story.mood,
             )
             logger.info("✅ Caption card generated: %s", card_path)
 
