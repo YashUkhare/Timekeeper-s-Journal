@@ -25,6 +25,9 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
 
+      - name: Install system fonts
+        run: sudo apt-get install -y fonts-dejavu-core
+
       - name: Install dependencies
         run: pip install -r requirements.txt
 
@@ -35,12 +38,11 @@ jobs:
         run: python main.py --now
 
       - name: Commit updated files back to repo
-        if: always()   # Run even if bot failed — so pending_publish.json gets committed
+        if: always()
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add data/story.xlsx
-          # Commit pending_publish.json if Instagram posting failed
           git add pending_publish.json 2>/dev/null || true
           git diff --staged --quiet || git commit -m "chore: daily post update [skip ci]"
           git push

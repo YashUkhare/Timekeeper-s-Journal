@@ -7,11 +7,12 @@ logger = logging.getLogger("instagram_bot.pending_store")
 PENDING_FILE = Path("pending_publish.json")
 
 
-def save(image_url: str, caption: str, row_index: int, day: int) -> None:
+def save(image_url: str, card_url: str, hashtags: str, row_index: int, day: int) -> None:
     """Persist a failed publish so the retry workflow can pick it up."""
     data = {
         "image_url": image_url,
-        "caption": caption,
+        "card_url": card_url,
+        "hashtags": hashtags,
         "row_index": row_index,
         "day": day,
     }

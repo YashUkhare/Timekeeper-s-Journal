@@ -17,7 +17,7 @@ logger = logging.getLogger("instagram_bot.image_uploader")
 
 
 class ImageUploader:
-    """Uploads a local image to Cloudinary and returns a public URL."""
+    """Uploads local images to Cloudinary and returns public URLs."""
 
     def __init__(self) -> None:
         if not all([CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET]):
@@ -36,19 +36,17 @@ class ImageUploader:
         after=after_log(logger, logging.DEBUG),
         reraise=True,
     )
-    def upload(self, image_path: Path, day: int) -> str:
+    def upload(self, image_path: Path, public_id: str) -> str:
         """Upload image and return the secure public URL."""
-        logger.info("Uploading image to Cloudinary: %s", image_path)
-
+        logger.info("Uploading to Cloudinary: %s", image_path)
         result = cloudinary.uploader.upload(
             str(image_path),
-            public_id=f"instagram_bot/day_{day:03d}",
+            public_id=f"instagram_bot/{public_id}",
             overwrite=True,
             resource_type="image",
             format="jpg",
             transformation=[{"quality": "auto", "fetch_format": "auto"}],
         )
-
         url: str = result["secure_url"]
-        logger.info("Image uploaded → %s", url)
+        logger.info("Uploaded → %s", url)
         return url

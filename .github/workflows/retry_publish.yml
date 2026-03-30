@@ -2,7 +2,6 @@ name: Retry Instagram Publish
 
 on:
   workflow_dispatch:
-    # Manual trigger only — run this from Actions tab whenever a post failed
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -24,6 +23,9 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
 
+      - name: Install system fonts
+        run: sudo apt-get install -y fonts-dejavu-core
+
       - name: Install dependencies
         run: pip install -r requirements.txt
 
@@ -42,7 +44,7 @@ jobs:
       - name: Retry Instagram publish only
         run: python main.py --retry
 
-      - name: Commit updated files (story.xlsx + remove pending_publish.json)
+      - name: Commit updated files
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
