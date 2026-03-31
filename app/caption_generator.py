@@ -84,7 +84,7 @@ Story context:
 {caption_context}
 
 Rules:
-- Write a compelling 2-3 sentence story snippet
+- Write a compelling 4-5 sentence story snippet
 - Keep it under 180 words total
 - NO emojis anywhere
 - NO markdown formatting (no ** or ##)
