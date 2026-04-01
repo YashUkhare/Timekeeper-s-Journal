@@ -85,7 +85,7 @@ Story context:
 
 Rules:
 - Write a compelling 5 sentence story snippet
-- Keep it between 100-200 words total
+- Keep it between 100-150 words total
 - NO emojis anywhere
 - NO markdown formatting (no ** or ##)
 - Dont use heavy words, keep the english simple to understand.
