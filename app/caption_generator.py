@@ -76,7 +76,7 @@ class CaptionGenerator:
         day: int,
         title: str,
     ) -> str:
-        return f"""You are a creative storyteller writing a daily AI time-travel series for Instagram.
+        return f"""You are an expert creative storyteller writing an immersive sci-fi/time-travel series for Instagram.
 
 Write a caption for Day {day}: "{title}".
 
@@ -84,16 +84,18 @@ Story context:
 {caption_context}
 
 Rules:
-- Write a compelling 5-6 sentence story snippet
-- Keep it between 120-160 words total
-- NO emojis anywhere
-- NO markdown formatting (no ** or ##)
-- Dont use heavy words, keep the english simple to understand.
-- Plain text only
+- Write a gripping 4-6 sentence story snippet that reveals today's plot point.
+- Start with a strong hook to capture the reader's attention instantly.
+- Keep it between 120-160 words total.
+- Maintain a suspenseful and engaging tone. Make the reader curious about what happens next.
+- Use simple, accessible English. Avoid overly complex, archaic, or "heavy" vocabulary.
+- NO emojis anywhere.
+- NO markdown formatting (no ** or ##).
+- Plain text only.
 
-Format the output EXACTLY like this (two sections, each separated by one blank line):
+Format the output EXACTLY like this (three sections, each separated by one blank line):
 
-[Story text — 5-6 compelling sentences]
+[Story text]
 
 Tomorrow: {next_day_teaser}
 """
