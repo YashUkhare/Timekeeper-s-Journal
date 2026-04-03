@@ -84,8 +84,8 @@ Story context:
 {caption_context}
 
 Rules:
-- Write a compelling 5 sentence story snippet
-- Keep it between 100-150 words total
+- Write a compelling 5-6 sentence story snippet
+- Keep it between 120-160 words total
 - NO emojis anywhere
 - NO markdown formatting (no ** or ##)
 - Dont use heavy words, keep the english simple to understand.
@@ -93,7 +93,7 @@ Rules:
 
 Format the output EXACTLY like this (two sections, each separated by one blank line):
 
-[Story text — 5 compelling sentences]
+[Story text — 5-6 compelling sentences]
 
 Tomorrow: {next_day_teaser}
 """

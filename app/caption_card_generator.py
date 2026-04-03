@@ -210,7 +210,7 @@ class CaptionCardGenerator:
         # ── 2. TITLE ───────────────────────────────────────────────────────
         tw, th = zone_dims(ZONE_TITLE)
         title_font, title_lines, title_lh = _autofit_font(
-            FONT_UNIFRAKTUR, title_clean, tw, th, draw,
+            FONT_CINZEL, title_clean, tw, th, draw,
             max_size=42, allow_wrap=True,
         )
         _draw_text_in_zone(
