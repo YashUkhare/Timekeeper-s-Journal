@@ -1,8 +1,9 @@
 """
 caption_card_generator.py
 ─────────────────────────
-Overlays story text onto card_template.png using exact pixel zones
-provided by the user. Fonts are loaded from data/fonts/.
+Overlays story text onto card_template.png (1071×1350).
+Text zones are auto-detected from the template's clear dark areas.
+Fonts loaded from data/fonts/.
 """
 import logging
 import re
@@ -16,25 +17,25 @@ from app.config import BASE_DIR, GENERATED_IMAGES_DIR
 logger = logging.getLogger("instagram_bot.caption_card_generator")
 
 # ── Asset paths ────────────────────────────────────────────────────────────────
-TEMPLATE_PATH  = BASE_DIR / "data" / "card_template.png"
-FONTS_DIR      = BASE_DIR / "data" / "fonts"
+TEMPLATE_PATH = BASE_DIR / "data" / "card_template.png"
+FONTS_DIR     = BASE_DIR / "data" / "fonts"
 
-FONT_CINZEL        = FONTS_DIR / "Cinzel-Regular.ttf"
-FONT_UNIFRAKTUR    = FONTS_DIR / "UnifrakturMaguntia-Book.ttf"
-FONT_IMFELL        = FONTS_DIR / "IMFellEnglishSC-Regular.ttf"
+FONT_CINZEL     = FONTS_DIR / "Cinzel-Regular.ttf"
+FONT_UNIFRAKTUR = FONTS_DIR / "UnifrakturMaguntia-Book.ttf"
+FONT_IMFELL     = FONTS_DIR / "IMFellEnglishSC-Regular.ttf"
 
-# ── Text zone coordinates (x1, y1, x2, y2) ────────────────────────────────────
-ZONE_DAY    = (308,  93,  490,  123)   # Day number bar
-ZONE_TITLE  = (225, 133,  550,  207)   # Title area
-ZONE_BODY   = (154, 252,  633,  710)   # Story body
-ZONE_TEASER = (215, 760,  570,  805)   # Next day teaser
+# ── Text zones (x1, y1, x2, y2) — derived from template analysis ──────────────
+# Template size: 1071 × 1350
+ZONE_DAY    = (380, 160, 690, 208)    # Centred between corner decorations — 310×48px
+ZONE_TITLE  = (140, 220, 930, 315)    # Full-width title strip            — 790×95px
+ZONE_BODY   = (140, 335, 930, 720)    # Large clear expanse               — 790×385px
+ZONE_TEASER = (200, 738, 870, 800)    # Just above the clock              — 670×62px
 
 # ── Colours ────────────────────────────────────────────────────────────────────
-COLOR_DAY    = (205, 170,  85)   # Burnished brass
-COLOR_TITLE  = (175, 138,  48)   # Deep etched gold
-COLOR_BODY   = (210, 190, 130)   # Warm parchment gold
-COLOR_TEASER = (195, 125,  65)   # Copper-brass
-COLOR_SHADOW = (  0,   0,   0,  160)  # Drop shadow (RGBA)
+COLOR_DAY    = (205, 170,  85)    # Burnished brass
+COLOR_TITLE  = (170, 130,  42)    # Deep etched gold
+COLOR_BODY   = (215, 195, 140)    # Warm parchment gold
+COLOR_TEASER = (195, 125,  65)    # Copper-brass
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -49,7 +50,6 @@ def _strip_emojis(text: str) -> str:
 
 
 def _load_font(path: Path, size: int) -> ImageFont.ImageFont:
-    """Load font from repo; fall back to DejaVu then default."""
     if path.exists():
         return ImageFont.truetype(str(path), size)
     fallbacks = [
@@ -59,107 +59,86 @@ def _load_font(path: Path, size: int) -> ImageFont.ImageFont:
     ]
     for fb in fallbacks:
         if Path(fb).exists():
-            logger.warning("Font %s not found, falling back to %s", path.name, fb)
+            logger.warning("Font %s not found — falling back to %s", path.name, fb)
             return ImageFont.truetype(fb, size)
     return ImageFont.load_default()
 
 
-def _wrap_text(
-    text: str,
-    font: ImageFont.ImageFont,
-    max_w: int,
-    draw: ImageDraw.ImageDraw,
-) -> list[str]:
-    """Word-wrap text to fit within max_w pixels."""
-    words  = text.split()
-    lines, current = [], ""
+def _wrap(text: str, font: ImageFont.ImageFont, max_w: int, draw: ImageDraw.ImageDraw) -> list[str]:
+    words = text.split()
+    lines, cur = [], ""
     for word in words:
-        test = f"{current} {word}".strip()
+        test = f"{cur} {word}".strip()
         if draw.textbbox((0, 0), test, font=font)[2] <= max_w:
-            current = test
+            cur = test
         else:
-            if current:
-                lines.append(current)
-            current = word
-    if current:
-        lines.append(current)
+            if cur:
+                lines.append(cur)
+            cur = word
+    if cur:
+        lines.append(cur)
     return lines
 
 
-def _autofit_font(
-    path: Path,
+def _autofit(
+    font_path: Path,
     text: str,
-    zone_w: int,
-    zone_h: int,
+    zone: tuple,
     draw: ImageDraw.ImageDraw,
     max_size: int,
     min_size: int = 8,
-    allow_wrap: bool = False,
+    wrap: bool = True,
+    padding: int = 10,
 ) -> tuple[ImageFont.ImageFont, list[str], int]:
-    """
-    Find the largest font size where text fits inside zone_w x zone_h.
-    Returns (font, lines, line_height).
-    """
+    """Return (font, lines, line_height) that fit inside zone."""
+    x1, y1, x2, y2 = zone
+    zone_w = x2 - x1 - padding * 2
+    zone_h = y2 - y1 - padding * 2
+
     for size in range(max_size, min_size - 1, -1):
-        font = _load_font(path, size)
-        lh   = draw.textbbox((0, 0), "Ag", font=font)[3] + 4
+        font = _load_font(font_path, size)
+        lh   = draw.textbbox((0, 0), "Ag", font=font)[3] + 5
+        lines = _wrap(text, font, zone_w, draw) if wrap else [text]
+        if len(lines) * lh <= zone_h:
+            max_w = max(draw.textbbox((0, 0), l, font=font)[2] for l in lines)
+            if max_w <= zone_w:
+                return font, lines, lh
 
-        if allow_wrap:
-            lines = _wrap_text(text, font, zone_w, draw)
-        else:
-            lines = [text]
-
-        total_h = len(lines) * lh
-        max_line_w = max(draw.textbbox((0, 0), l, font=font)[2] for l in lines)
-
-        if total_h <= zone_h and max_line_w <= zone_w:
-            return font, lines, lh
-
-    # Minimum size fallback — wrap and clip
-    font  = _load_font(path, min_size)
-    lh    = draw.textbbox((0, 0), "Ag", font=font)[3] + 4
-    lines = _wrap_text(text, font, zone_w, draw) if allow_wrap else [text]
+    font  = _load_font(font_path, min_size)
+    lh    = draw.textbbox((0, 0), "Ag", font=font)[3] + 5
+    lines = _wrap(text, font, zone_w, draw) if wrap else [text]
     return font, lines, lh
 
 
-def _draw_text_in_zone(
+def _place(
     draw: ImageDraw.ImageDraw,
     lines: list[str],
     font: ImageFont.ImageFont,
     line_h: int,
-    zone: tuple[int, int, int, int],
+    zone: tuple,
     color: tuple,
     align: str = "center",   # "center" | "left"
     valign: str = "center",  # "center" | "top"
-    shadow: bool = True,
+    padding: int = 10,
 ) -> None:
     x1, y1, x2, y2 = zone
     zone_w = x2 - x1
     zone_h = y2 - y1
-    total_text_h = len(lines) * line_h
+    total_h = len(lines) * line_h
 
-    # Vertical position
-    if valign == "center":
-        start_y = y1 + (zone_h - total_text_h) // 2
-    else:
-        start_y = y1
+    start_y = y1 + padding + (zone_h - total_h) // 2 if valign == "center" else y1 + padding
 
-    for i, line in enumerate(lines):
+    for line in lines:
         text_w = draw.textbbox((0, 0), line, font=font)[2]
-        if align == "center":
-            start_x = x1 + (zone_w - text_w) // 2
-        else:
-            start_x = x1
+        start_x = x1 + (zone_w - text_w) // 2 if align == "center" else x1 + padding
 
-        # Drop shadow for legibility
-        if shadow:
-            draw.text((start_x + 2, start_y + 2), line, font=font, fill=(0, 0, 0, 180))
-
-        draw.text((start_x, start_y), line, font=font, fill=color)
+        # Subtle drop shadow for legibility on textured background
+        draw.text((start_x + 2, start_y + 2), line, font=font, fill=(0, 0, 0, 200))
+        draw.text((start_x,     start_y    ), line, font=font, fill=color)
         start_y += line_h
 
 
-# ── Main class ─────────────────────────────────────────────────────────────────
+# ── Main ───────────────────────────────────────────────────────────────────────
 
 class CaptionCardGenerator:
 
@@ -180,73 +159,49 @@ class CaptionCardGenerator:
         img  = Image.open(TEMPLATE_PATH).convert("RGBA")
         draw = ImageDraw.Draw(img)
 
-        # ── Parse caption sections ─────────────────────────────────────────
-        parts   = [p.strip() for p in caption.strip().split("\n\n") if p.strip()]
-        body    = _strip_emojis(parts[0]) if len(parts) > 0 else ""
-        teaser  = _strip_emojis(parts[1]) if len(parts) > 1 else ""
+        # ── Parse caption ──────────────────────────────────────────────────
+        parts  = [p.strip() for p in caption.strip().split("\n\n") if p.strip()]
+        body   = _strip_emojis(parts[0]) if len(parts) > 0 else ""
+        teaser = _strip_emojis(parts[1]) if len(parts) > 1 else ""
         # parts[2] = hashtags — NOT rendered on card
 
-        # Clean "Tomorrow:" prefix from teaser if Gemini included it
         teaser = re.sub(r"^(tomorrow\s*[:\-]?\s*)", "", teaser, flags=re.IGNORECASE).strip()
-
         title_clean = _strip_emojis(title.upper())
-        day_text    = f"DAY  {day:03d}"
+        day_text    = f"~ DAY  {day:03d} ~"
 
-        # ── Zone dimensions ────────────────────────────────────────────────
-        def zone_dims(z):
-            return z[2] - z[0], z[3] - z[1]   # w, h
+        # ── 1. DAY NUMBER — Cinzel, centred, brass ─────────────────────────
+        day_font, day_lines, day_lh = _autofit(
+            FONT_CINZEL, day_text, ZONE_DAY, draw, max_size=28,
+        )
+        _place(draw, day_lines, day_font, day_lh, ZONE_DAY, COLOR_DAY,
+               align="center", valign="center")
 
-        # ── 1. DAY NUMBER ──────────────────────────────────────────────────
-        dw, dh = zone_dims(ZONE_DAY)
-        day_font, day_lines, day_lh = _autofit_font(
-            FONT_CINZEL, day_text, dw, dh, draw,
-            max_size=26, allow_wrap=False,
+        # ── 2. TITLE — UnifrakturMaguntia, centred, deep gold ─────────────
+        title_font, title_lines, title_lh = _autofit(
+            FONT_CINZEL, title_clean, ZONE_TITLE, draw, max_size=60, wrap=True,
         )
-        _draw_text_in_zone(
-            draw, day_lines, day_font, day_lh,
-            ZONE_DAY, COLOR_DAY, align="center", valign="center",
-        )
+        _place(draw, title_lines, title_font, title_lh, ZONE_TITLE, COLOR_TITLE,
+               align="center", valign="center")
 
-        # ── 2. TITLE ───────────────────────────────────────────────────────
-        tw, th = zone_dims(ZONE_TITLE)
-        title_font, title_lines, title_lh = _autofit_font(
-            FONT_CINZEL, title_clean, tw, th, draw,
-            max_size=42, allow_wrap=True,
+        # ── 3. STORY BODY — IM Fell English SC, left-aligned, parchment ───
+        body_font, body_lines, body_lh = _autofit(
+            FONT_IMFELL, body, ZONE_BODY, draw, max_size=32, wrap=True,
         )
-        _draw_text_in_zone(
-            draw, title_lines, title_font, title_lh,
-            ZONE_TITLE, COLOR_TITLE, align="center", valign="center",
-        )
+        _place(draw, body_lines, body_font, body_lh, ZONE_BODY, COLOR_BODY,
+               align="left", valign="top", padding=14)
 
-        # ── 3. STORY BODY ──────────────────────────────────────────────────
-        bw, bh = zone_dims(ZONE_BODY)
-        body_font, body_lines, body_lh = _autofit_font(
-            FONT_IMFELL, body, bw, bh, draw,
-            max_size=24, allow_wrap=True,
-        )
-        _draw_text_in_zone(
-            draw, body_lines, body_font, body_lh,
-            ZONE_BODY, COLOR_BODY, align="left", valign="top",
-        )
-
-        # ── 4. TEASER ──────────────────────────────────────────────────────
+        # ── 4. TEASER — Cinzel, centred, copper ───────────────────────────
         if teaser:
-            rw, rh = zone_dims(ZONE_TEASER)
-            teaser_font, teaser_lines, teaser_lh = _autofit_font(
-                FONT_CINZEL, teaser, rw, rh, draw,
-                max_size=18, allow_wrap=True,
+            teaser_font, teaser_lines, teaser_lh = _autofit(
+                FONT_CINZEL, teaser, ZONE_TEASER, draw, max_size=22, wrap=True,
             )
-            _draw_text_in_zone(
-                draw, teaser_lines, teaser_font, teaser_lh,
-                ZONE_TEASER, COLOR_TEASER, align="center", valign="center",
-            )
+            _place(draw, teaser_lines, teaser_font, teaser_lh, ZONE_TEASER, COLOR_TEASER,
+                   align="center", valign="center")
 
-        # ── Save ───────────────────────────────────────────────────────────
+        # ── Save as RGB PNG ────────────────────────────────────────────────
         GENERATED_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
         file_path = GENERATED_IMAGES_DIR / f"day_{day:03d}_caption.png"
-
-        # Convert back to RGB for JPEG-compatible upload
         img.convert("RGB").save(str(file_path), "PNG")
 
-        logger.info("Caption card saved → %s", file_path)
+        logger.info("Caption card saved → %s  (%dx%d)", file_path, img.width, img.height)
         return file_path

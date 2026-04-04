@@ -93,7 +93,7 @@ Rules:
 - NO markdown formatting (no ** or ##).
 - Plain text only.
 
-Format the output EXACTLY like this (three sections, each separated by one blank line):
+Format the output EXACTLY like this (three sections):
 
 [Story text]
 
