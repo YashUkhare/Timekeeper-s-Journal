@@ -1,6 +1,6 @@
 # 🤖 AI Instagram Story Bot
 
-A fully automated Python bot that posts one AI-generated Instagram image daily, driven by a 365-day Time Traveler story stored in an Excel file.
+A fully automated Python bot that posts one AI-generated Instagram image daily, driven by a 365-day Time Traveler story.
 
 ---
 
@@ -55,8 +55,8 @@ project-root/
 ### 1. Clone & install
 
 ```bash
-git clone https://github.com/yourname/instagram-bot.git
-cd instagram-bot
+git clone https://github.com/YashUkhare/Timekeeper-s-Journal
+cd Timekeeper-s-Journal
 python -m venv venv
 source venv/bin/activate       # Windows: venv\Scripts\activate
 pip install -r requirements.txt
