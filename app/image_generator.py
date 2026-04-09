@@ -8,7 +8,7 @@ from app.config import HUGGINGFACE_API_KEY, GENERATED_IMAGES_DIR, MAX_RETRIES, R
 
 logger = logging.getLogger("instagram_bot.image_generator")
 
-HF_MODEL = "stabilityai/stable-diffusion-xl-base-1.0"
+HF_MODEL = "black-forest-labs/FLUX.1-dev"
 
 
 class ImageGenerator:
