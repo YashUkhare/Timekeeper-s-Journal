@@ -1,0 +1,58 @@
+name: Reset Failed to Pending
+
+on:
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  reset:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4.2.2
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5.4.0
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install pandas openpyxl
+
+      - name: Reset FAILED rows to PENDING
+        run: |
+          python3 << 'PYEOF'
+          import pandas as pd
+
+          path = "data/story.xlsx"
+          df = pd.read_excel(path, engine="openpyxl")
+
+          failed_mask = df["Status"].str.strip().str.lower() == "failed"
+          count = failed_mask.sum()
+
+          if count == 0:
+              print("No FAILED rows found. Nothing to reset.")
+          else:
+              df.loc[failed_mask, "Status"] = "Pending"
+              df.to_excel(path, index=False, engine="openpyxl")
+              print(f"✅ Reset {count} row(s) from FAILED → Pending:")
+              for _, row in df[failed_mask].iterrows():
+                  print(f"   Day {int(row['Day'])}: {row['Title']}")
+          PYEOF
+
+      - name: Commit updated story.xlsx
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/story.xlsx
+          git diff --staged --quiet || git commit -m "chore: reset FAILED rows to Pending [skip ci]"
+          git push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
