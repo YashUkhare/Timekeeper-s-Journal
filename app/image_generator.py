@@ -110,10 +110,10 @@ class ImageGenerator:
     @staticmethod
     def _build_prompt(image_prompt: str, style: str, mood: str) -> str:
         return (
-            "Tall vertical portrait format, 9:16 aspect ratio, more height than width. "
+            "Vertical format (4:5 aspect ratio, optimized for Instagram post). "
             f"{image_prompt}. "
             f"Art style: {style}. "
             f"Mood and atmosphere: {mood}. "
             "Cinematic composition, ultra-detailed, vibrant colors, "
-            "suitable for Instagram Story."
+            "suitable for Instagram feed."
         )
