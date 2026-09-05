@@ -1,15 +1,16 @@
 """
 image_generator.py
-──────────────────
-Resilient image generation with a 4-level fallback chain:
 
-  1. FLUX.1-schnell        (HF — best free quality)
-  2. SDXL Base 1.0         (HF — proven workhorse)
-  3. Stable Diffusion 2.1  (HF — lightweight fallback)
-  4. Pollinations.ai       (zero-auth HTTP GET — final safety net)
+Image generation fallback chain:
 
-If every HF model fails, Pollinations.ai always delivers.
+1. Qwen Image via Hugging Face Inference Providers
+2. FLUX.1-schnell via Hugging Face Inference Providers
+3. Pollinations.ai
+
+Permanent API errors (401/403/404/410) are NOT retried.
+Transient failures (timeouts/429/5xx) may be retried.
 """
+
 import logging
 import time
 import urllib.parse
@@ -17,103 +18,332 @@ from pathlib import Path
 
 import requests
 from huggingface_hub import InferenceClient
-from tenacity import retry, stop_after_attempt, wait_fixed, before_log, after_log
+from huggingface_hub.errors import HfHubHTTPError
 
-from app.config import HUGGINGFACE_API_KEY, GENERATED_IMAGES_DIR, MAX_RETRIES, RETRY_WAIT_SECONDS
+from app.config import (
+    HUGGINGFACE_API_KEY,
+    GENERATED_IMAGES_DIR,
+    MAX_RETRIES,
+    RETRY_WAIT_SECONDS,
+)
 
 logger = logging.getLogger("instagram_bot.image_generator")
 
-# ── Model chain — tried in order ──────────────────────────────────────────────
+
+# Current models. provider="auto" decides where they actually run.
 HF_MODELS = [
-    "black-forest-labs/FLUX.1-schnell",        # Best free quality, actively maintained
-    "stabilityai/stable-diffusion-xl-base-1.0", # Proven workhorse
-    "stabilityai/stable-diffusion-2-1",         # Lightweight fallback
+    "Qwen/Qwen-Image",
+    "black-forest-labs/FLUX.1-schnell",
 ]
 
-POLLINATIONS_URL = "https://image.pollinations.ai/prompt/{prompt}?width=768&height=1350&nologo=true&seed={seed}"
+# Real 4:5 ratio
+POLLINATIONS_URL = (
+    "https://image.pollinations.ai/prompt/{prompt}"
+    "?width=1080"
+    "&height=1350"
+    "&nologo=true"
+    "&seed={seed}"
+)
 
 
 class ImageGenerator:
+
     def __init__(self) -> None:
-        if not HUGGINGFACE_API_KEY:
-            raise EnvironmentError("HUGGINGFACE_API_KEY is not set.")
-        self._client = InferenceClient(
-            token=HUGGINGFACE_API_KEY,
-            provider="hf-inference",
+        self._client = None
+
+        if HUGGINGFACE_API_KEY:
+            self._client = InferenceClient(
+                token=HUGGINGFACE_API_KEY,
+                provider="auto",
+            )
+        else:
+            logger.warning(
+                "HUGGINGFACE_API_KEY not configured. "
+                "HF generation disabled; Pollinations fallback will be used."
+            )
+
+    def generate(
+        self,
+        image_prompt: str,
+        style: str,
+        mood: str,
+        day: int,
+    ) -> Path:
+
+        full_prompt = self._build_prompt(
+            image_prompt,
+            style,
+            mood,
         )
 
-    # ──────────────────────────────────────────────────────────────────────────
-    def generate(self, image_prompt: str, style: str, mood: str, day: int) -> Path:
-        """
-        Try each model in the fallback chain.
-        Returns the saved image path on first success.
-        Raises RuntimeError only if every option is exhausted.
-        """
-        full_prompt = self._build_prompt(image_prompt, style, mood)
-        GENERATED_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
-        file_path = GENERATED_IMAGES_DIR / f"day_{day:03d}.png"
+        GENERATED_IMAGES_DIR.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
 
-        # ── Try each HF model ──────────────────────────────────────────────
-        for model in HF_MODELS:
-            try:
-                logger.info("Trying HF model: %s", model)
-                image = self._try_hf_model(model, full_prompt)
-                image.save(str(file_path))
-                logger.info("✅ Image generated via %s → %s", model, file_path)
-                return file_path
-            except Exception as exc:
-                logger.warning("⚠️  Model %s failed: %s — trying next...", model, exc)
-                time.sleep(3)
+        file_path = (
+            GENERATED_IMAGES_DIR /
+            f"day_{day:03d}.png"
+        )
 
-        # ── Final safety net: Pollinations.ai ─────────────────────────────
-        logger.warning("All HF models failed. Falling back to Pollinations.ai...")
+        # ---------------------------------------------------------
+        # Hugging Face
+        # ---------------------------------------------------------
+
+        if self._client:
+
+            for model in HF_MODELS:
+
+                logger.info(
+                    "Trying HF model: %s",
+                    model,
+                )
+
+                try:
+                    image = self._generate_hf(
+                        model,
+                        full_prompt,
+                        day,
+                    )
+
+                    image.save(
+                        file_path,
+                        format="PNG",
+                    )
+
+                    logger.info(
+                        "✅ Image generated via %s → %s",
+                        model,
+                        file_path,
+                    )
+
+                    return file_path
+
+                except Exception as exc:
+                    logger.warning(
+                        "⚠️ Model %s failed: %s",
+                        model,
+                        exc,
+                    )
+
+        # ---------------------------------------------------------
+        # Pollinations
+        # ---------------------------------------------------------
+
+        logger.warning(
+            "HF models unavailable. "
+            "Falling back to Pollinations.ai..."
+        )
+
         try:
-            self._try_pollinations(full_prompt, day, file_path)
-            logger.info("✅ Image generated via Pollinations.ai → %s", file_path)
+            self._generate_pollinations(
+                full_prompt,
+                day,
+                file_path,
+            )
+
+            logger.info(
+                "✅ Image generated via Pollinations.ai → %s",
+                file_path,
+            )
+
             return file_path
+
         except Exception as exc:
-            logger.error("❌ Pollinations.ai also failed: %s", exc)
+
+            logger.exception(
+                "❌ Pollinations.ai failed."
+            )
+
             raise RuntimeError(
-                "All image generation sources exhausted (HF chain + Pollinations.ai)."
+                "All image generation providers failed."
             ) from exc
 
-    # ──────────────────────────────────────────────────────────────────────────
-    @retry(
-        stop=stop_after_attempt(MAX_RETRIES),
-        wait=wait_fixed(RETRY_WAIT_SECONDS),
-        reraise=True,
-    )
-    def _try_hf_model(self, model: str, prompt: str):
-        """Call HF InferenceClient for a single model. Returns PIL Image."""
-        return self._client.text_to_image(prompt, model=model)
+    # ---------------------------------------------------------
+    # Hugging Face
+    # ---------------------------------------------------------
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_fixed(10),
-        reraise=True,
-    )
-    def _try_pollinations(self, prompt: str, day: int, file_path: Path) -> None:
-        """Fetch image from Pollinations.ai and write to file_path."""
-        encoded = urllib.parse.quote(prompt)
-        url = POLLINATIONS_URL.format(prompt=encoded, seed=day)
-        logger.info("Requesting Pollinations.ai: %s", url[:80] + "...")
+    def _generate_hf(
+        self,
+        model: str,
+        prompt: str,
+        seed: int,
+    ):
+        """
+        Retry transient errors only.
 
-        response = requests.get(url, timeout=120)
-        if response.status_code != 200:
-            raise RuntimeError(f"Pollinations returned {response.status_code}")
-        if not response.content:
-            raise RuntimeError("Pollinations returned empty content.")
+        Do NOT retry:
+        400
+        401
+        403
+        404
+        410
 
-        file_path.write_bytes(response.content)
+        because another attempt will normally produce
+        exactly the same result.
+        """
 
-    # ──────────────────────────────────────────────────────────────────────────
+        last_exception = None
+
+        for attempt in range(1, MAX_RETRIES + 1):
+
+            try:
+
+                return self._client.text_to_image(
+                    prompt,
+                    model=model,
+                    width=1080,
+                    height=1350,
+                    seed=seed,
+                )
+
+            except HfHubHTTPError as exc:
+
+                last_exception = exc
+
+                status = (
+                    exc.response.status_code
+                    if exc.response
+                    else None
+                )
+
+                # Permanent errors
+                if status in {
+                    400,
+                    401,
+                    403,
+                    404,
+                    410,
+                }:
+                    logger.warning(
+                        "Permanent HF error %s for %s. "
+                        "Skipping retries.",
+                        status,
+                        model,
+                    )
+
+                    raise
+
+                # Transient HTTP error
+                logger.warning(
+                    "HF attempt %s/%s failed "
+                    "with HTTP %s.",
+                    attempt,
+                    MAX_RETRIES,
+                    status,
+                )
+
+            except (
+                requests.Timeout,
+                requests.ConnectionError,
+            ) as exc:
+
+                last_exception = exc
+
+                logger.warning(
+                    "Transient network failure "
+                    "attempt %s/%s: %s",
+                    attempt,
+                    MAX_RETRIES,
+                    exc,
+                )
+
+            if attempt < MAX_RETRIES:
+                time.sleep(RETRY_WAIT_SECONDS)
+
+        raise last_exception
+
+    # ---------------------------------------------------------
+    # Pollinations
+    # ---------------------------------------------------------
+
+    def _generate_pollinations(
+        self,
+        prompt: str,
+        day: int,
+        file_path: Path,
+    ) -> None:
+
+        encoded = urllib.parse.quote(
+            prompt,
+            safe="",
+        )
+
+        url = POLLINATIONS_URL.format(
+            prompt=encoded,
+            seed=day,
+        )
+
+        for attempt in range(1, 4):
+
+            try:
+
+                logger.info(
+                    "Requesting Pollinations.ai "
+                    "(attempt %s/3)",
+                    attempt,
+                )
+
+                response = requests.get(
+                    url,
+                    timeout=120,
+                )
+
+                response.raise_for_status()
+
+                if not response.content:
+                    raise RuntimeError(
+                        "Pollinations returned empty content."
+                    )
+
+                content_type = response.headers.get(
+                    "Content-Type",
+                    "",
+                )
+
+                if not content_type.startswith("image/"):
+                    raise RuntimeError(
+                        "Pollinations returned non-image "
+                        f"content: {content_type}"
+                    )
+
+                file_path.write_bytes(
+                    response.content
+                )
+
+                return
+
+            except (
+                requests.RequestException,
+                RuntimeError,
+            ):
+
+                if attempt == 3:
+                    raise
+
+                time.sleep(10)
+
+    # ---------------------------------------------------------
+
     @staticmethod
-    def _build_prompt(image_prompt: str, style: str, mood: str) -> str:
+    def _build_prompt(
+        image_prompt: str,
+        style: str,
+        mood: str,
+    ) -> str:
+
         return (
-            "Vertical format (4:5 aspect ratio, optimized for Instagram post). "
+            "Vertical Instagram artwork, "
+            "4:5 aspect ratio. "
             f"{image_prompt}. "
             f"Art style: {style}. "
             f"Mood and atmosphere: {mood}. "
-            "Cinematic composition, ultra-detailed, vibrant colors, "
-            "suitable for Instagram feed."
+            "Cinematic composition, "
+            "highly detailed, "
+            "rich natural colors, "
+            "professional lighting, "
+            "strong visual storytelling, "
+            "Instagram editorial quality. "
+            "No text, no captions, no logos, "
+            "no watermark."
         )
