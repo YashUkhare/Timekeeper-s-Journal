@@ -3,9 +3,8 @@ image_generator.py
 
 Image generation fallback chain:
 
-1. Qwen Image via Hugging Face Inference Providers
-2. FLUX.1-schnell via Hugging Face Inference Providers
-3. Pollinations.ai
+1. FLUX.1-schnell via Hugging Face Inference Providers
+2. Pollinations.ai
 
 Permanent API errors (401/403/404/410) are NOT retried.
 Transient failures (timeouts/429/5xx) may be retried.
@@ -31,8 +30,9 @@ logger = logging.getLogger("instagram_bot.image_generator")
 
 
 # Current models. provider="auto" decides where they actually run.
+# FLUX.1-schnell only: ~$0.003-0.006/image (Replicate/fal.ai). Qwen-Image
+# (~$0.02-0.035/image) was dropped — it drained the monthly HF credit.
 HF_MODELS = [
-    "Qwen/Qwen-Image",
     "black-forest-labs/FLUX.1-schnell",
 ]
 
@@ -211,6 +211,7 @@ class ImageGenerator:
                 if status in {
                     400,
                     401,
+                    402,
                     403,
                     404,
                     410,
